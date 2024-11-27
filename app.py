@@ -1,26 +1,45 @@
 import streamlit as st
 import pandas as pd
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
 import nltk
 
 # Ensure necessary NLTK data is downloaded
-nltk.download('stopwords')
-nltk.download('wordnet')
+try:
+    nltk.download('stopwords')
+    nltk.download('wordnet')
+except Exception as e:
+    st.error(f"Error downloading NLTK resources: {e}")
+    st.stop()
+
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 
 # Initialize stopwords
 stop = set(stopwords.words('english'))
 stop.update(['.', ',', '"', "'", '?', '!', ':', ';', '(', ')', '[', ']', '{', '}'])
 
 # Load datasets
-food_data = pd.read_csv(r'Mood-Based-Food-Recommender-System/food_choices.csv')
-res_data = pd.read_csv(r'Mood-Based-Food-Recommender-System/zomato.csv', encoding='latin-1')
-res_data = res_data.loc[(res_data['Country Code'] == 1) & (res_data['City'] == 'New Delhi')]
-res_data = res_data.loc[res_data['Longitude'] != 0]
-res_data = res_data.loc[res_data['Latitude'] != 0]
-res_data = res_data.loc[res_data['Latitude'] < 29]  # Clearing out invalid outliers
-res_data = res_data.loc[res_data['Rating text'] != 'Not rated']
-res_data['Cuisines'] = res_data['Cuisines'].astype(str)
+try:
+    food_data = pd.read_csv(r'./food_choices.csv')
+    res_data = pd.read_csv(r'./zomato.csv', encoding='latin-1')
+    
+    # Check for required columns
+    required_columns = ['Country Code', 'City', 'Longitude', 'Latitude', 'Rating text', 'Cuisines']
+    if not all(col in res_data.columns for col in required_columns):
+        st.error("Zomato dataset missing required columns.")
+        st.stop()
+
+    # Filter and clean restaurant data
+    res_data = res_data.loc[(res_data['Country Code'] == 1) & (res_data['City'] == 'New Delhi')]
+    res_data = res_data.loc[(res_data['Longitude'] != 0) & (res_data['Latitude'] != 0)]
+    res_data = res_data.loc[res_data['Latitude'] < 29]
+    res_data = res_data.loc[res_data['Rating text'] != 'Not rated']
+    res_data['Cuisines'] = res_data['Cuisines'].fillna('').astype(str)
+except FileNotFoundError as e:
+    st.error(f"Error loading datasets: {e}")
+    st.stop()
+except Exception as e:
+    st.error(f"An unexpected error occurred: {e}")
+    st.stop()
 
 # Functions
 def search_comfort(mood):
@@ -47,71 +66,14 @@ def find_my_comfort_food(mood):
     topn = search_comfort(mood)
     return topn[:3]
 
-# Streamlit App
+# Streamlit App Configuration
 st.set_page_config(page_title="Mood-Based Food Recommender", page_icon="🍕", layout="wide")
 
-# Add CSS for custom styling
-st.markdown(
-    """
-    <style>
-    /* General page styling */
-    body {
-        background-color: #f0f4f7;
-        font-family: 'Arial', sans-serif;
-        color: #333;
-    }
-    .css-18e3th9 {
-        background-color: rgba(255, 255, 255, 0.9);
-        border-radius: 15px;
-        padding: 20px;
-    }
-    .css-1v3v5v6 {
-        font-size: 18px;
-    }
-    /* Styling for headings */
-    .stMarkdown h1 {
-        color: #4B79A1;
-        font-size: 3em;
-        text-align: center;
-        margin-bottom: 0.5em;
-        text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
-    }
-    .stMarkdown h2 {
-        color: #333;
-        font-size: 1.5em;
-        margin-top: 1.5em;
-    }
-    /* Button styles */
-    .stButton>button {
-        background-color: #4b79a1;
-        color: white;
-        font-size: 18px;
-        padding: 10px 20px;
-        border-radius: 8px;
-        border: none;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    .stButton>button:hover {
-        background-color: #3e6d93;
-    }
-    /* Radio button style */
-    .stRadio>div>label>div {
-        font-size: 20px;
-        padding: 5px;
-        margin-bottom: 10px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Title and description
+# Title and Description
 st.title("🍽️ Mood-Based Food Recommender 🍕")
-st.write(
-    "Welcome to the **Mood-Based Food Recommender**! Select your mood, and we'll suggest comfort foods and the best restaurants in New Delhi for you to enjoy. 🌟"
-)
+st.write("Welcome to the **Mood-Based Food Recommender**! Select your mood, and we'll suggest comfort foods and the best restaurants in New Delhi for you to enjoy. 🌟")
 
-# Mapping moods with emojis
+# Moods and Emojis Mapping
 emoji_mood_mapping = {
     "😊 Happy": "happy",
     "😔 Sad": "sad",
@@ -121,33 +83,20 @@ emoji_mood_mapping = {
     "🤢 Disgusted": "disgusted"
 }
 
-# Check for available moods
-available_moods = []
-for emoji, mood in emoji_mood_mapping.items():
-    if search_comfort(mood):
-        available_moods.append(emoji)
+# Precompute available moods
+available_moods = [emoji for emoji, mood in emoji_mood_mapping.items() if search_comfort(mood)]
 
-# Mood selection
 if available_moods:
-    mood = st.radio(
-        "How are you feeling today? Select an emoji that matches your mood:",
-        available_moods,
-        index=0,
-        key="mood_radio"
-    )
-
-    # Convert emoji-based mood to keyword for processing
+    mood = st.radio("How are you feeling today? Select an emoji that matches your mood:", available_moods, index=0, key="mood_radio")
     mood_text = emoji_mood_mapping.get(mood)
 
-    # Get the food recommendations based on mood
+    # Recommendations
     result = find_my_comfort_food(mood_text)
-
-    # Display results
     if result and len(result) >= 3:
         st.subheader(f"🍴 Comfort Food Recommendations for Your Mood: {mood}")
         st.markdown(f"Try **{result[0]}**, **{result[1]}**, or **{result[2]}**!")
 
-        # Food to cuisine mapping
+        # Food to Cuisine Mapping
         food_to_cuisine_map = {
             "pizza": "pizza",
             "ice cream": "ice cream",
@@ -155,27 +104,18 @@ if available_moods:
             "chinese": "chinese",
             "chip": "bakery",
             "chocolate": "bakery",
-            "candy": "bakery",
-            "mcdonalds": "burger",
             "burger": "burger",
-            "cooky": "bakery",
-            "mac and cheese": "american",
             "pasta": "italian",
-            "soup": "chinese",
-            "dark chocolate": "bakery",
-            "terra chips": "bakery",
-            "reese's cups(dark chocolate)": "bakery",
         }
 
-        # Find restaurants based on recommendations
+        # Restaurants
         restaurants_list = []
         for item in result:
-            if item in food_to_cuisine_map:
-                cuisine = food_to_cuisine_map[item]
+            cuisine = food_to_cuisine_map.get(item)
+            if cuisine:
                 restaurants = res_data[res_data.Cuisines.str.contains(cuisine, case=False)].sort_values(by='Aggregate rating', ascending=False).head(3)
                 restaurants_list.extend(restaurants.to_dict('records'))
 
-        # Display restaurants
         if restaurants_list:
             st.subheader("🍽️ Top Restaurant Recommendations:")
             for idx, restaurant in enumerate(restaurants_list):
